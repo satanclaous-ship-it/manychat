@@ -156,3 +156,200 @@ export async function scheduleSequence(db: D1Database, automationId: number, con
       .run();
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// 대시보드 쿼리 (설계서 §7)
+// ─────────────────────────────────────────────────────────────
+
+export interface AutomationRow extends Automation {
+  hit_count: number;
+  step_count: number;
+}
+
+export async function listAutomations(db: D1Database): Promise<AutomationRow[]> {
+  const res = await db
+    .prepare(
+      "SELECT a.*, " +
+        " (SELECT COUNT(*) FROM automation_hits h WHERE h.automation_id = a.id) AS hit_count, " +
+        " (SELECT COUNT(*) FROM sequence_steps s WHERE s.automation_id = a.id) AS step_count " +
+        "FROM automations a ORDER BY a.id",
+    )
+    .all<AutomationRow>();
+  return res.results ?? [];
+}
+
+export async function getAutomation(db: D1Database, id: number): Promise<Automation | null> {
+  return await db.prepare("SELECT * FROM automations WHERE id = ?").bind(id).first<Automation>();
+}
+
+export interface NewAutomation {
+  name: string;
+  type: string;
+  media_id: string | null;
+  keywords_json: string;
+  match_mode: string;
+  public_reply_text: string | null;
+  dm_text: string;
+  once_per_user: number;
+  cooldown_hours: number;
+  tag_to_apply: string | null;
+}
+
+export async function createAutomation(
+  db: D1Database,
+  a: NewAutomation,
+  steps: { delay_minutes: number; text: string }[],
+): Promise<number> {
+  const now = nowIso();
+  const res = await db
+    .prepare(
+      "INSERT INTO automations (name,type,enabled,media_id,keywords_json,match_mode,public_reply_text,dm_text,once_per_user,cooldown_hours,tag_to_apply,created_at,updated_at) " +
+        "VALUES (?,?,1,?,?,?,?,?,?,?,?,?,?)",
+    )
+    .bind(
+      a.name,
+      a.type,
+      a.media_id,
+      a.keywords_json,
+      a.match_mode,
+      a.public_reply_text,
+      a.dm_text,
+      a.once_per_user,
+      a.cooldown_hours,
+      a.tag_to_apply,
+      now,
+      now,
+    )
+    .run();
+  const id = res.meta.last_row_id as number;
+  let sort = 0;
+  for (const s of steps) {
+    await db
+      .prepare("INSERT INTO sequence_steps (automation_id,delay_minutes,text,sort) VALUES (?,?,?,?)")
+      .bind(id, s.delay_minutes, s.text, sort++)
+      .run();
+  }
+  return id;
+}
+
+export async function toggleAutomation(db: D1Database, id: number): Promise<void> {
+  await db
+    .prepare("UPDATE automations SET enabled = 1 - enabled, updated_at = ? WHERE id = ?")
+    .bind(nowIso(), id)
+    .run();
+}
+
+export async function deleteAutomation(db: D1Database, id: number): Promise<void> {
+  await db.prepare("DELETE FROM sequence_steps WHERE automation_id = ?").bind(id).run();
+  await db.prepare("DELETE FROM automation_hits WHERE automation_id = ?").bind(id).run();
+  await db.prepare("DELETE FROM automations WHERE id = ?").bind(id).run();
+}
+
+export interface ConversationRow {
+  id: string;
+  username: string | null;
+  last_inbound_at: string | null;
+  automation_paused: number;
+  last_text: string | null;
+  last_at: string | null;
+  last_dir: string | null;
+}
+
+export async function listConversations(db: D1Database, limit = 50): Promise<ConversationRow[]> {
+  const res = await db
+    .prepare(
+      "SELECT c.id, c.username, c.last_inbound_at, c.automation_paused, " +
+        " m.text AS last_text, m.created_at AS last_at, m.direction AS last_dir " +
+        "FROM contacts c " +
+        "LEFT JOIN messages m ON m.id = ( " +
+        "  SELECT id FROM messages m2 WHERE m2.contact_id = c.id ORDER BY m2.created_at DESC LIMIT 1) " +
+        "ORDER BY COALESCE(m.created_at, c.last_seen_at) DESC LIMIT ?",
+    )
+    .bind(limit)
+    .all<ConversationRow>();
+  return res.results ?? [];
+}
+
+export interface MessageRow {
+  id: string;
+  direction: string;
+  source: string;
+  kind: string;
+  text: string | null;
+  created_at: string;
+}
+
+export async function getConversation(
+  db: D1Database,
+  contactId: string,
+): Promise<{ contact: ConversationRow | null; messages: MessageRow[]; pendingJobs: number }> {
+  const contact = await db
+    .prepare("SELECT id, username, last_inbound_at, automation_paused, NULL last_text, NULL last_at, NULL last_dir FROM contacts WHERE id = ?")
+    .bind(contactId)
+    .first<ConversationRow>();
+  const msgs = await db
+    .prepare("SELECT id,direction,source,kind,text,created_at FROM messages WHERE contact_id = ? ORDER BY created_at")
+    .bind(contactId)
+    .all<MessageRow>();
+  const jobs = await db
+    .prepare("SELECT COUNT(*) c FROM sequence_jobs WHERE contact_id = ? AND status = 'pending'")
+    .bind(contactId)
+    .first<{ c: number }>();
+  return { contact, messages: msgs.results ?? [], pendingJobs: jobs?.c ?? 0 };
+}
+
+export async function setPaused(db: D1Database, contactId: string, paused: boolean): Promise<void> {
+  await db.prepare("UPDATE contacts SET automation_paused = ? WHERE id = ?").bind(paused ? 1 : 0, contactId).run();
+}
+
+export async function cancelPendingJobs(db: D1Database, contactId: string): Promise<void> {
+  await db
+    .prepare("UPDATE sequence_jobs SET status = 'cancelled', resolved_at = ? WHERE contact_id = ? AND status = 'pending'")
+    .bind(nowIso(), contactId)
+    .run();
+}
+
+/** 24h 윈도우 안이면 true (수동 답장 허용 판정 — 설계서 §7 인박스). */
+export function withinWindow(lastInboundAt: string | null): boolean {
+  if (!lastInboundAt) return false;
+  return Date.now() - new Date(lastInboundAt).getTime() < 24 * 3600_000;
+}
+
+export interface ContactListRow {
+  id: string;
+  username: string | null;
+  tags: string | null;
+  last_seen_at: string;
+}
+
+export async function listContacts(db: D1Database, tag: string | null): Promise<ContactListRow[]> {
+  const q =
+    "SELECT c.id, c.username, c.last_seen_at, " +
+    " (SELECT GROUP_CONCAT(t.tag, ',') FROM contact_tags t WHERE t.contact_id = c.id) AS tags " +
+    "FROM contacts c " +
+    (tag ? "WHERE EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = ?) " : "") +
+    "ORDER BY c.last_seen_at DESC LIMIT 500";
+  const stmt = tag ? db.prepare(q).bind(tag) : db.prepare(q);
+  const res = await stmt.all<ContactListRow>();
+  return res.results ?? [];
+}
+
+export async function listAllTags(db: D1Database): Promise<string[]> {
+  const res = await db.prepare("SELECT DISTINCT tag FROM contact_tags ORDER BY tag").all<{ tag: string }>();
+  return (res.results ?? []).map((r) => r.tag);
+}
+
+export interface EventRow {
+  type: string;
+  outcome: string | null;
+  created_at: string;
+}
+
+export async function listEvents(db: D1Database, errorsOnly: boolean): Promise<EventRow[]> {
+  const q =
+    "SELECT type, outcome, created_at FROM events_log " +
+    (errorsOnly ? "WHERE outcome LIKE 'error:%' OR outcome LIKE '%err:%' " : "") +
+    "ORDER BY id DESC LIMIT 100";
+  const res = await db.prepare(q).all<EventRow>();
+  return res.results ?? [];
+}

@@ -20,3 +20,17 @@ describe("decideJob — 24h 윈도우 가드 (설계서 §6-2)", () => {
     expect(decideJob(now, "2026-07-13T12:00:00Z", 0)).toBe("expired");
   });
 });
+
+import { withinWindow } from "../src/db";
+
+describe("withinWindow — 수동 답장 허용 판정 (설계서 §7)", () => {
+  it("인바운드 없음 → 닫힘", () => {
+    expect(withinWindow(null)).toBe(false);
+  });
+  it("방금 인바운드 → 열림", () => {
+    expect(withinWindow(new Date().toISOString())).toBe(true);
+  });
+  it("25시간 전 → 닫힘", () => {
+    expect(withinWindow(new Date(Date.now() - 25 * 3600_000).toISOString())).toBe(false);
+  });
+});
