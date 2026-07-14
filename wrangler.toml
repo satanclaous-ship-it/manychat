@@ -1,0 +1,23 @@
+# auto-dm — Cloudflare Workers 설정
+# 설계서 §1 (아키텍처) · §9 (레포 구조)
+name = "auto-dm"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 시퀀스 잡 발송 + 주 1회 토큰 갱신 (설계서 §6)
+[triggers]
+crons = ["* * * * *"]
+
+# D1 — 연락처·메시지·자동화·시퀀스·이벤트로그·설정 (설계서 §2)
+# database_id는 `wrangler d1 create auto_dm_db` 후 출력값으로 채운다 (README M0 참고)
+[[d1_databases]]
+binding = "DB"
+database_name = "auto_dm_db"
+database_id = "REPLACE_AFTER_D1_CREATE"
+
+# 시크릿은 코드/레포에 두지 않는다 (설계서 §8) — wrangler secret put 로 주입:
+#   APP_SECRET            Meta 앱 시크릿 (웹훅 서명 검증)
+#   WEBHOOK_VERIFY_TOKEN  웹훅 등록 검증 토큰
+#   DASHBOARD_PASSWORD    대시보드 로그인 비밀번호
+#   SESSION_SIGNING_KEY   세션 쿠키 서명 키

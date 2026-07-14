@@ -1,0 +1,24 @@
+{
+  "name": "auto-dm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Instagram 댓글 자동 DM — 매니챗 클론 v1 (Cloudflare Workers + D1)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:local": "wrangler d1 execute auto_dm_db --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute auto_dm_db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.0.0",
+    "@cloudflare/workers-types": "^5.20260708.1"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  }
+}

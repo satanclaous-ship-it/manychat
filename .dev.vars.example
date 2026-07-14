@@ -1,0 +1,4 @@
+APP_SECRET=your_meta_app_secret
+WEBHOOK_VERIFY_TOKEN=any_random_string
+DASHBOARD_PASSWORD=choose_a_password
+SESSION_SIGNING_KEY=any_long_random_string
