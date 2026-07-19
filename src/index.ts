@@ -5,6 +5,7 @@ import type { Env } from "./types";
 import { verifyWebhookSignature } from "./crypto";
 import { processWebhook } from "./handler";
 import { runSequenceTick, maybeRefreshToken } from "./sequences";
+import { getSetting } from "./db";
 import { mountApp } from "./app";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -24,7 +25,9 @@ app.get("/webhook", (c) => {
 app.post("/webhook", async (c) => {
   const raw = await c.req.text();
   const sig = c.req.header("x-hub-signature-256") ?? null;
-  const valid = await verifyWebhookSignature(c.env.APP_SECRET, sig, raw);
+  // 앱 시크릿: 대시보드 설정(D1)에서 먼저, 없으면 Wrangler 시크릿(env) 폴백
+  const appSecret = (await getSetting(c.env.DB, "app_secret")) || c.env.APP_SECRET;
+  const valid = await verifyWebhookSignature(appSecret, sig, raw);
   if (!valid) return c.text("unauthorized", 401);
 
   let body: any;

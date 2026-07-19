@@ -330,4 +330,68 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
           `</table>`;
     return c.html(page("logs", "로그", `<p>${toggle}</p>` + table));
   });
+
+  // ── 화면 6: 설정 (인스타 연결 — M1 토큰을 브라우저에서 입력) ──
+  app.get("/app/settings", async (c) => {
+    const [token, userId, apiVersion, appSecret] = await Promise.all([
+      db.getSetting(c.env.DB, "ig_access_token"),
+      db.getSetting(c.env.DB, "ig_user_id"),
+      db.getSetting(c.env.DB, "api_version"),
+      db.getSetting(c.env.DB, "app_secret"),
+    ]);
+
+    // 연결 테스트: 토큰 있으면 /me 호출해서 즉시 확인
+    let status = `<div class=card><b>연결 상태</b><div class=muted>아직 토큰이 없어요. 아래에 붙여넣고 저장하세요.</div></div>`;
+    if (token && userId && apiVersion) {
+      try {
+        const res = await fetch(
+          `https://graph.instagram.com/${apiVersion}/me?fields=user_id,username&access_token=${token}`,
+        );
+        const j: any = await res.json();
+        if (res.ok && (j.username || j.user_id)) {
+          status = `<div class=card><b>✅ 연결됨</b><div class=muted>@${esc(j.username ?? j.user_id)} · API ${esc(apiVersion)}</div></div>`;
+        } else {
+          status = `<div class=card><b>⚠️ 토큰 문제</b><div class="badge err">${esc(j?.error?.message ?? "확인 실패")}</div><div class=muted>토큰이 만료됐거나 권한이 부족할 수 있어요. 새 토큰으로 다시 저장하세요.</div></div>`;
+        }
+      } catch {
+        status = `<div class=card><b>⚠️ 확인 중 오류</b><div class=muted>잠시 후 새로고침 해보세요.</div></div>`;
+      }
+    }
+
+    const setBadge = (v: string | null) => (v ? `<span class="badge on-b">저장됨</span>` : `<span class="badge off-b">비어있음</span>`);
+
+    return c.html(
+      page(
+        "settings",
+        "설정",
+        status +
+          `<form method=post action="/app/settings">
+        <label>인스타그램 액세스 토큰 ${setBadge(token)}
+          <textarea name=ig_access_token placeholder="${token ? "(그대로 두면 유지, 바꾸려면 새 토큰 붙여넣기)" : "Meta에서 받은 긴 토큰 붙여넣기"}"></textarea></label>
+        <label>인스타그램 유저 ID ${setBadge(userId)}
+          <input name=ig_user_id value="${esc(userId ?? "")}" placeholder="숫자 ID"></label>
+        <label>API 버전<input name=api_version value="${esc(apiVersion ?? "v25.0")}"></label>
+        <label>앱 시크릿 (App Secret) ${setBadge(appSecret)}
+          <input name=app_secret type=password placeholder="${appSecret ? "(그대로 두면 유지)" : "Meta 앱 설정>기본의 앱 시크릿"}"></label>
+        <p class=muted>토큰·유저ID·앱시크릿은 여기(대시보드)에서만 관리돼요. 빈 칸은 기존 값을 유지합니다.</p>
+        <p><button class=primary>저장</button></p>
+      </form>
+      <div class=card><div class=muted>연결 후 할 일: ① Meta 앱에서 웹훅 콜백 URL 등록 → ② 자동화 탭에서 규칙 만들기 → ③ 게시물에 키워드 댓글로 테스트.
+      웹훅 콜백 URL은 <code>${new URL(c.req.url).origin}/webhook</code></div></div>`,
+      ),
+    );
+  });
+
+  app.post("/app/settings", async (c) => {
+    const f = await c.req.parseBody();
+    const token = String(f.ig_access_token ?? "").trim();
+    const userId = String(f.ig_user_id ?? "").trim();
+    const apiVersion = String(f.api_version ?? "").trim() || "v25.0";
+    const appSecret = String(f.app_secret ?? "").trim();
+    if (token) await db.setSetting(c.env.DB, "ig_access_token", token);
+    if (userId) await db.setSetting(c.env.DB, "ig_user_id", userId);
+    await db.setSetting(c.env.DB, "api_version", apiVersion);
+    if (appSecret) await db.setSetting(c.env.DB, "app_secret", appSecret);
+    return c.redirect("/app/settings");
+  });
 }

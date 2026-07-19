@@ -51,6 +51,7 @@ const TABS = [
   ["inbox", "인박스"],
   ["contacts", "연락처"],
   ["logs", "로그"],
+  ["settings", "설정"],
 ];
 
 export function page(active: string, title: string, inner: string): string {
