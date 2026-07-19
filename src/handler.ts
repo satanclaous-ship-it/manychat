@@ -79,6 +79,36 @@ async function handleEvent(
     });
   }
 
+  // 6.5) 버튼(빠른 답장) 탭 처리 — 키워드 매칭보다 우선 (대화 플로우)
+  if (ev.kind === "dm" && ev.quickReplyPayload?.startsWith("qr:")) {
+    const qrId = parseInt(ev.quickReplyPayload.slice(3), 10);
+    const qr = Number.isFinite(qrId) ? await db.getQuickReplyById(env.DB, qrId) : null;
+    if (qr) {
+      if (!cfg) {
+        await db.setEventOutcome(env.DB, ev.dedupeKey, "error:no_token");
+        return;
+      }
+      const r = await meta.sendDirectMessage(cfg, senderId, qr.response_text);
+      if (r.ok) {
+        await db.logMessage(env.DB, {
+          id: r.body?.message_id ?? `qr:${ev.dedupeKey}`,
+          contactId: senderId,
+          direction: "out",
+          source: "auto",
+          kind: "dm",
+          text: qr.response_text,
+          automationId: qr.automation_id,
+        });
+        await db.setEventOutcome(env.DB, ev.dedupeKey, `quick_reply:${qr.id}`);
+      } else {
+        await db.setEventOutcome(env.DB, ev.dedupeKey, `error:qr_dm:${r.errorCode ?? r.status}`);
+      }
+    } else {
+      await db.setEventOutcome(env.DB, ev.dedupeKey, "quick_reply:unknown");
+    }
+    return;
+  }
+
   // 7) 트리거 매칭
   const type = ev.kind === "comment" ? "comment_keyword" : ev.kind === "story_reply" ? "story_reply" : "dm_keyword";
   const automations = await db.listEnabledAutomations(env.DB, type);
@@ -122,12 +152,16 @@ async function runActions(
     if (!r.ok) errors.push(`public_reply:${r.errorCode ?? r.status}`);
   }
 
-  // DM 발송: comment → private reply, 그 외 → 일반 DM
+  // 첫 DM에 붙일 버튼 (대화 플로우) — payload = "qr:<id>"
+  const quickReplies = await db.getQuickReplies(env.DB, rule.id);
+  const buttons = quickReplies.map((q) => ({ label: q.label, payload: `qr:${q.id}` }));
+
+  // DM 발송: comment → private reply, 그 외 → 일반 DM. 버튼 있으면 부착.
   let dmResult;
   if (ev.kind === "comment") {
-    dmResult = await meta.sendPrivateReply(cfg, ev.commentId, rule.dm_text);
+    dmResult = await meta.sendPrivateReply(cfg, ev.commentId, rule.dm_text, buttons);
   } else {
-    dmResult = await meta.sendDirectMessage(cfg, senderId, rule.dm_text);
+    dmResult = await meta.sendDirectMessage(cfg, senderId, rule.dm_text, buttons);
   }
   if (dmResult.ok) {
     await db.logMessage(env.DB, {

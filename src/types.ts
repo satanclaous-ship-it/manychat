@@ -43,6 +43,7 @@ export type NormalizedEvent =
       senderId: string;
       text: string;
       isEcho: boolean;
+      quickReplyPayload: string | null; // 버튼 탭이면 "qr:<id>"
     }
   | {
       kind: "story_reply";

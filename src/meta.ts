@@ -38,19 +38,47 @@ function base(cfg: MetaConfig): string {
   return `https://graph.instagram.com/${cfg.apiVersion}`;
 }
 
-/** 4.1 일반 DM 발송 (24h 윈도우 안). */
-export function sendDirectMessage(cfg: MetaConfig, recipientIgsid: string, text: string) {
+export interface QuickReplyButton {
+  label: string;
+  payload: string;
+}
+
+/** 인스타 quick_replies 형식으로 변환 (설계서 확장 — 대화 플로우). */
+function buildMessage(text: string, buttons?: QuickReplyButton[]): Record<string, unknown> {
+  const message: Record<string, unknown> = { text };
+  if (buttons && buttons.length) {
+    message.quick_replies = buttons.slice(0, 13).map((b) => ({
+      content_type: "text",
+      title: b.label.slice(0, 20),
+      payload: b.payload,
+    }));
+  }
+  return message;
+}
+
+/** 4.1 일반 DM 발송 (24h 윈도우 안). 버튼 옵션 시 quick_replies 부착. */
+export function sendDirectMessage(
+  cfg: MetaConfig,
+  recipientIgsid: string,
+  text: string,
+  buttons?: QuickReplyButton[],
+) {
   return post(`${base(cfg)}/${cfg.igUserId}/messages?access_token=${cfg.accessToken}`, {
     recipient: { id: recipientIgsid },
-    message: { text },
+    message: buildMessage(text, buttons),
   });
 }
 
-/** 4.2 Private reply — 댓글에 대한 비공개 DM (댓글당 1회, 7일 이내). */
-export function sendPrivateReply(cfg: MetaConfig, commentId: string, text: string) {
+/** 4.2 Private reply — 댓글에 대한 비공개 DM (댓글당 1회, 7일 이내). 버튼 부착 가능. */
+export function sendPrivateReply(
+  cfg: MetaConfig,
+  commentId: string,
+  text: string,
+  buttons?: QuickReplyButton[],
+) {
   return post(`${base(cfg)}/${cfg.igUserId}/messages?access_token=${cfg.accessToken}`, {
     recipient: { comment_id: commentId },
-    message: { text },
+    message: buildMessage(text, buttons),
   });
 }
 

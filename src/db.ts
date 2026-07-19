@@ -164,6 +164,7 @@ export async function scheduleSequence(db: D1Database, automationId: number, con
 export interface AutomationRow extends Automation {
   hit_count: number;
   step_count: number;
+  btn_count: number;
 }
 
 export async function listAutomations(db: D1Database): Promise<AutomationRow[]> {
@@ -171,7 +172,8 @@ export async function listAutomations(db: D1Database): Promise<AutomationRow[]> 
     .prepare(
       "SELECT a.*, " +
         " (SELECT COUNT(*) FROM automation_hits h WHERE h.automation_id = a.id) AS hit_count, " +
-        " (SELECT COUNT(*) FROM sequence_steps s WHERE s.automation_id = a.id) AS step_count " +
+        " (SELECT COUNT(*) FROM sequence_steps s WHERE s.automation_id = a.id) AS step_count, " +
+        " (SELECT COUNT(*) FROM quick_replies q WHERE q.automation_id = a.id) AS btn_count " +
         "FROM automations a ORDER BY a.id",
     )
     .all<AutomationRow>();
@@ -242,6 +244,7 @@ export async function toggleAutomation(db: D1Database, id: number): Promise<void
 export async function deleteAutomation(db: D1Database, id: number): Promise<void> {
   await db.prepare("DELETE FROM sequence_steps WHERE automation_id = ?").bind(id).run();
   await db.prepare("DELETE FROM automation_hits WHERE automation_id = ?").bind(id).run();
+  await db.prepare("DELETE FROM quick_replies WHERE automation_id = ?").bind(id).run();
   await db.prepare("DELETE FROM automations WHERE id = ?").bind(id).run();
 }
 
@@ -352,4 +355,46 @@ export async function listEvents(db: D1Database, errorsOnly: boolean): Promise<E
     "ORDER BY id DESC LIMIT 100";
   const res = await db.prepare(q).all<EventRow>();
   return res.results ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 대화 플로우: 빠른 답장 버튼 (quick_replies)
+// ─────────────────────────────────────────────────────────────
+
+export interface QuickReply {
+  id: number;
+  automation_id: number;
+  label: string;
+  response_text: string;
+  sort: number;
+}
+
+export async function getQuickReplies(db: D1Database, automationId: number): Promise<QuickReply[]> {
+  const res = await db
+    .prepare("SELECT * FROM quick_replies WHERE automation_id = ? ORDER BY sort")
+    .bind(automationId)
+    .all<QuickReply>();
+  return res.results ?? [];
+}
+
+export async function getQuickReplyById(db: D1Database, id: number): Promise<QuickReply | null> {
+  return await db.prepare("SELECT * FROM quick_replies WHERE id = ?").bind(id).first<QuickReply>();
+}
+
+export async function addQuickReplies(
+  db: D1Database,
+  automationId: number,
+  buttons: { label: string; response_text: string }[],
+): Promise<void> {
+  let sort = 0;
+  for (const b of buttons) {
+    await db
+      .prepare("INSERT INTO quick_replies (automation_id,label,response_text,sort) VALUES (?,?,?,?)")
+      .bind(automationId, b.label, b.response_text, sort++)
+      .run();
+  }
+}
+
+export async function deleteQuickReplies(db: D1Database, automationId: number): Promise<void> {
+  await db.prepare("DELETE FROM quick_replies WHERE automation_id = ?").bind(automationId).run();
 }

@@ -42,3 +42,30 @@ describe("parseWebhook", () => {
     expect(parseWebhook({ entry: [{ messaging: [{ sender: { id: "X" } }] }] })).toEqual([]); // message 없음
   });
 });
+
+describe("parseWebhook — 버튼(빠른답장) 탭", () => {
+  it("quick_reply.payload 를 dm 이벤트에 담는다", () => {
+    const body = {
+      object: "instagram",
+      entry: [
+        {
+          messaging: [
+            {
+              sender: { id: "USER_E" },
+              message: { mid: "MID_QR", text: "마음이 피곤해요", quick_reply: { payload: "qr:7" } },
+            },
+          ],
+        },
+      ],
+    };
+    const [ev] = parseWebhook(body);
+    if (ev.kind !== "dm") throw new Error();
+    expect(ev.quickReplyPayload).toBe("qr:7");
+    expect(ev.isEcho).toBe(false);
+  });
+  it("일반 DM은 quickReplyPayload가 null", () => {
+    const [ev] = parseWebhook(fx.dmEvent);
+    if (ev.kind !== "dm") throw new Error();
+    expect(ev.quickReplyPayload).toBeNull();
+  });
+});

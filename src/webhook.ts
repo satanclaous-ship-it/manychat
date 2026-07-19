@@ -55,6 +55,7 @@ export function parseWebhook(body: any): NormalizedEvent[] {
           senderId,
           text,
           isEcho: msg.is_echo === true,
+          quickReplyPayload: msg.quick_reply?.payload ?? null,
         });
       }
     }

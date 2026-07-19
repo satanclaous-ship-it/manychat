@@ -83,7 +83,7 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
               (a) => `<div class=card><div class=row>
         <div><b>${esc(a.name)}</b> <span class="badge ${a.enabled ? "on-b" : "off-b"}">${a.enabled ? "ON" : "OFF"}</span></div>
         <div class=muted>${TYPE_LABEL[a.type] ?? a.type}</div></div>
-        <div class=muted>키워드 ${esc(a.keywords_json)} · 발동 ${a.hit_count}회${a.step_count ? ` · 후속 ${a.step_count}단계` : ""}</div>
+        <div class=muted>키워드 ${esc(a.keywords_json)} · 발동 ${a.hit_count}회${a.btn_count ? ` · 버튼 ${a.btn_count}개` : ""}${a.step_count ? ` · 후속 ${a.step_count}단계` : ""}</div>
         <div class=row style="margin-top:.5rem">
           <form class=inline method=post action="/app/automations/${a.id}/toggle"><button>${a.enabled ? "끄기" : "켜기"}</button></form>
           <form class=inline method=post action="/app/automations/${a.id}/delete" onsubmit="return confirm('삭제할까요?')"><button class=danger>삭제</button></form>
@@ -120,6 +120,13 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
       <label>본문<textarea name=step${n}_text placeholder="비우면 사용 안 함"></textarea></label></div>`,
       )
       .join("");
+    const buttonFields = [1, 2, 3]
+      .map(
+        (n) => `<div class=card><div class=muted>버튼 ${n} (선택)</div>
+      <label>버튼 글자 (≤20자)<input name=btn${n}_label maxlength=20 placeholder="예: 마음이 피곤해요"></label>
+      <label>이 버튼을 누르면 보낼 메시지<textarea name=btn${n}_text placeholder="비우면 사용 안 함 · 여기에 맞는 제품/링크"></textarea></label></div>`,
+      )
+      .join("");
     return c.html(
       page(
         "automations",
@@ -138,6 +145,8 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
       <label>부착 태그 (선택)<input name=tag_to_apply placeholder="ebook-3light"></label>
       <label><input type=checkbox name=once value=1 checked style="width:auto"> 1인 1회만 발동</label>
       <label>쿨다운(시간) — 1인1회 끌 때 재발동 간격<input type=number name=cooldown_hours min=0 value=0></label>
+      <h4>선택 버튼 (대화 플로우 · DM에 버튼을 붙이고, 누르면 맞는 메시지 발송)</h4>
+      <p class=muted>버튼을 넣으면 위 'DM 본문' 아래에 버튼이 함께 나가요. 상대가 버튼을 누르면 아래 지정한 메시지가 두 번째로 발송돼요.</p>${buttonFields}
       <h4>후속 발송 (시퀀스 · 24h 윈도우 안에서만)</h4>${stepFields}
       <p style="margin-top:1rem"><button class=primary>만들기</button> <a class=btn href="/app/automations">취소</a></p>
     </form>`,
@@ -157,7 +166,13 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
       const text = String(f[`step${n}_text`] ?? "").trim();
       if (delay > 0 && text) steps.push({ delay_minutes: delay, text });
     }
-    await db.createAutomation(
+    const buttons: { label: string; response_text: string }[] = [];
+    for (const n of [1, 2, 3]) {
+      const label = String(f[`btn${n}_label`] ?? "").trim();
+      const text = String(f[`btn${n}_text`] ?? "").trim();
+      if (label && text) buttons.push({ label, response_text: text });
+    }
+    const id = await db.createAutomation(
       c.env.DB,
       {
         name: String(f.name ?? "무제").trim(),
@@ -173,6 +188,7 @@ export function mountApp(app: Hono<{ Bindings: Env }>): void {
       },
       steps,
     );
+    if (buttons.length) await db.addQuickReplies(c.env.DB, id, buttons);
     return c.redirect("/app/automations");
   });
 
