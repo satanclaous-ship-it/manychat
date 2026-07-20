@@ -10,11 +10,12 @@ compatibility_flags = ["nodejs_compat"]
 crons = ["* * * * *"]
 
 # D1 — 연락처·메시지·자동화·시퀀스·이벤트로그·설정 (설계서 §2)
-# database_id는 `wrangler d1 create auto_dm_db` 후 출력값으로 채운다 (README M0 참고)
+# database_id는 이 계정의 auto_dm_db (2026-07 배포 시 생성). 시크릿 아님(계정 인증으로 보호).
+# 다른 계정에 새로 배포하면 `wrangler d1 create auto_dm_db` 후 이 값을 교체.
 [[d1_databases]]
 binding = "DB"
 database_name = "auto_dm_db"
-database_id = "REPLACE_AFTER_D1_CREATE"
+database_id = "b60fc9ac-2395-4745-b534-aa70c38230f9"
 
 # 시크릿은 코드/레포에 두지 않는다 (설계서 §8) — wrangler secret put 로 주입:
 #   APP_SECRET            Meta 앱 시크릿 (웹훅 서명 검증)
